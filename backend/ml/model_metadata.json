@@ -1,0 +1,76 @@
+{
+  "model_type": "Gradient Boosting",
+  "accuracy": 0.998,
+  "f1_score": 0.998,
+  "roc_auc": 1.0,
+  "trained_at": "2026-02-26T01:35:52",
+  "total_training_samples": 20068,
+  "test_samples": 4014,
+  "class_distribution": {
+    "LOW": 5017,
+    "MEDIUM": 5017,
+    "HIGH": 5017,
+    "CRITICAL": 5017
+  },
+  "feature_names": [
+    "device_type",
+    "encryption_algorithm",
+    "data_retention_years",
+    "network_exposure",
+    "update_capable",
+    "battery_powered",
+    "cpu_mhz",
+    "ram_kb",
+    "key_rotation_days",
+    "deployment_age_years",
+    "num_connected_devices",
+    "data_volume_mb_per_day",
+    "data_sensitivity"
+  ],
+  "feature_importances": {
+    "encryption_algorithm": 0.3873,
+    "data_retention_years": 0.1242,
+    "data_sensitivity": 0.1235,
+    "device_type": 0.0539,
+    "data_volume_mb_per_day": 0.0537,
+    "num_connected_devices": 0.0525,
+    "deployment_age_years": 0.05,
+    "key_rotation_days": 0.0385,
+    "update_capable": 0.0353,
+    "ram_kb": 0.031,
+    "cpu_mhz": 0.0297,
+    "battery_powered": 0.011,
+    "network_exposure": 0.0094
+  },
+  "cv_scores": {
+    "Random Forest": {
+      "mean": 0.9928,
+      "std": 0.0009
+    },
+    "Gradient Boosting": {
+      "mean": 0.9974,
+      "std": 0.0011
+    },
+    "Logistic Regression": {
+      "mean": 0.5129,
+      "std": 0.0152
+    }
+  },
+  "all_model_results": {
+    "Random Forest": {
+      "accuracy": 0.995,
+      "f1_macro": 0.995,
+      "roc_auc": 0.9999
+    },
+    "Gradient Boosting": {
+      "accuracy": 0.998,
+      "f1_macro": 0.998,
+      "roc_auc": 1.0
+    },
+    "Logistic Regression": {
+      "accuracy": 0.512,
+      "f1_macro": 0.4993,
+      "roc_auc": 0.7643
+    }
+  }
+}
