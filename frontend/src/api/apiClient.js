@@ -50,4 +50,15 @@ export const fetchModelInfo = () => api.get('/model/info').then(r => r.data)
 // Crypto Demo
 export const runCryptoDemo = (algo) => api.get(`/crypto/demo/${algo}`).then(r => r.data)
 
+// IoT Security Lab
+export const fetchIoTLabSummary = () => api.get('/iot-lab/summary').then(r => r.data)
+export const fetchIoTLabDevices = () => api.get('/iot-lab/devices').then(r => r.data)
+export const fetchIoTLabSessions = () => api.get('/iot-lab/sessions').then(r => r.data)
+export const fetchIoTLabAttacks = (params = {}) => api.get('/iot-lab/attacks', { params }).then(r => r.data)
+export const simulateAttack = (type) => api.post(`/iot-lab/simulate/${type}`).then(r => r.data)
+export const registerIoTDevice = (data) => api.post('/iot-lab/devices/register', data).then(r => r.data)
+export const initHandshake = (data) => api.post('/iot-lab/handshake/init', data).then(r => r.data)
+export const completeHandshake = (data) => api.post('/iot-lab/handshake/complete', data).then(r => r.data)
+export const sendTelemetry = (data) => api.post('/iot-lab/telemetry', data).then(r => r.data)
+
 export default api

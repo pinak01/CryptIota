@@ -13,6 +13,7 @@ Base = declarative_base()
 def init_db():
     """Create all tables if they don't exist."""
     import models  # noqa: F401 — ensures models are registered with Base
+    import iot_lab.models  # noqa: F401 — IoT Security Lab tables
     Base.metadata.create_all(bind=engine)
     print("[DB] All tables created / verified.")
 

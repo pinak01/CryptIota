@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Shield, LayoutDashboard, Server, MapPin, Gauge, GitBranch, Upload, Menu, X } from 'lucide-react'
+import { Shield, LayoutDashboard, Server, MapPin, Gauge, GitBranch, Upload, Menu, X, FlaskConical } from 'lucide-react'
 import { fetchModelInfo } from '../api/apiClient'
 
 const NAV_ITEMS = [
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
     { path: '/benchmarks', label: 'Benchmarks', icon: Gauge },
     { path: '/migration', label: 'Migration', icon: GitBranch },
     { path: '/upload', label: 'Upload', icon: Upload },
+    { path: '/iot-lab', label: 'IoT Lab', icon: FlaskConical },
 ]
 
 export default function Navbar() {
@@ -47,8 +48,8 @@ export default function Navbar() {
                                     key={path}
                                     to={path}
                                     className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${active
-                                            ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                                            : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5'
+                                        ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                                        : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-white/5'
                                         }`}
                                 >
                                     <Icon className="w-4 h-4" />
@@ -88,8 +89,8 @@ export default function Navbar() {
                                     to={path}
                                     onClick={() => setMobileOpen(false)}
                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${active
-                                            ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                                            : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+                                        ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                                        : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
                                         }`}
                                 >
                                     <Icon className="w-4 h-4" />

@@ -3,7 +3,7 @@
   "accuracy": 0.998,
   "f1_score": 0.998,
   "roc_auc": 1.0,
-  "trained_at": "2026-02-26T01:35:52",
+  "trained_at": "2026-03-01T19:11:17",
   "total_training_samples": 20068,
   "test_samples": 4014,
   "class_distribution": {
@@ -28,24 +28,24 @@
     "data_sensitivity"
   ],
   "feature_importances": {
-    "encryption_algorithm": 0.3873,
-    "data_retention_years": 0.1242,
-    "data_sensitivity": 0.1235,
-    "device_type": 0.0539,
-    "data_volume_mb_per_day": 0.0537,
-    "num_connected_devices": 0.0525,
-    "deployment_age_years": 0.05,
-    "key_rotation_days": 0.0385,
-    "update_capable": 0.0353,
-    "ram_kb": 0.031,
-    "cpu_mhz": 0.0297,
-    "battery_powered": 0.011,
-    "network_exposure": 0.0094
+    "encryption_algorithm": 0.3845,
+    "data_retention_years": 0.1247,
+    "data_sensitivity": 0.1227,
+    "data_volume_mb_per_day": 0.0541,
+    "device_type": 0.0534,
+    "num_connected_devices": 0.0523,
+    "deployment_age_years": 0.0505,
+    "key_rotation_days": 0.039,
+    "update_capable": 0.0361,
+    "ram_kb": 0.0315,
+    "cpu_mhz": 0.0301,
+    "battery_powered": 0.0115,
+    "network_exposure": 0.0095
   },
   "cv_scores": {
     "Random Forest": {
-      "mean": 0.9928,
-      "std": 0.0009
+      "mean": 0.9918,
+      "std": 0.0013
     },
     "Gradient Boosting": {
       "mean": 0.9974,

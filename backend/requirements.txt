@@ -10,3 +10,4 @@ joblib
 cryptography
 reportlab
 python-dotenv
+liboqs-python

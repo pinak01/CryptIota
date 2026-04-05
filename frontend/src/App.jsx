@@ -7,6 +7,7 @@ import RiskHeatmap from './pages/RiskHeatmap'
 import BenchmarkPage from './pages/BenchmarkPage'
 import MigrationPlanner from './pages/MigrationPlanner'
 import UploadAnalysis from './pages/UploadAnalysis'
+import IoTSecurityLab from './pages/IoTSecurityLab'
 
 export default function App() {
     return (
@@ -21,6 +22,7 @@ export default function App() {
                     <Route path="/benchmarks" element={<BenchmarkPage />} />
                     <Route path="/migration" element={<MigrationPlanner />} />
                     <Route path="/upload" element={<UploadAnalysis />} />
+                    <Route path="/iot-lab" element={<IoTSecurityLab />} />
                 </Routes>
             </main>
         </div>

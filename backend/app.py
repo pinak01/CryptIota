@@ -33,6 +33,10 @@ from crypto.benchmark import CryptoBenchmark
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+# Register IoT Security Lab Blueprint (isolated subsystem)
+from iot_lab.routes import iot_lab_bp
+app.register_blueprint(iot_lab_bp)
+
 # Initialize services
 classifier = QuantumGuardClassifier()
 policy_engine = MigrationPolicyEngine()
