@@ -84,7 +84,7 @@ This will:
 2. Generate the synthetic dataset (12,000 devices)
 3. Train the ML model (best of RF / GBC / LR)
 4. Seed 50 demo IoT devices into SQLite
-5. Start Flask backend on `http://localhost:5000`
+5. Start Flask backend on `http://localhost:6000`
 6. Start Vite dev server on `http://localhost:5173`
 
 ### Manual Start

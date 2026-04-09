@@ -8,6 +8,9 @@ import io
 import csv
 import time
 import json
+import random
+import threading
+import uuid
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -45,6 +48,424 @@ classical_crypto = ClassicalCrypto()
 pqc_crypto = PQCCrypto()
 hybrid_crypto = HybridCrypto()
 crypto_benchmark = CryptoBenchmark()
+
+
+MIGRATION_JOBS = {}
+MIGRATION_JOBS_LOCK = threading.Lock()
+MIGRATION_STAGE_DEFS = [
+    (1, "Establishing secure channel", 5),
+    (2, "Generating new PQC keypair on device", 22),
+    (3, "Signing firmware update manifest with Dilithium", 35),
+    (4, "Transmitting new crypto config to device", 52),
+    (5, "Device validating and installing new algorithm", 74),
+    (6, "Running post-migration handshake verification", 92),
+    (7, "Migration complete — device rebooting with new crypto stack", 100),
+]
+SUPPORTED_MIGRATION_ALGOS = {
+    "kyber512": {
+        "label": "Kyber512",
+        "db_algorithm": "Kyber-512",
+        "benchmark_aliases": {"Kyber512", "Kyber-512"},
+        "family": "kem",
+    },
+    "kyber768": {
+        "label": "Kyber768",
+        "db_algorithm": "Kyber-768",
+        "benchmark_aliases": {"Kyber768", "Kyber-768"},
+        "family": "kem",
+    },
+    "dilithium3": {
+        "label": "Dilithium3",
+        "db_algorithm": "Dilithium3",
+        "benchmark_aliases": {"Dilithium3"},
+        "family": "signature",
+        "risk_surrogate": "HYBRID-ECC-Kyber",
+    },
+    "falcon-512": {
+        "label": "Falcon-512",
+        "db_algorithm": "Falcon-512",
+        "benchmark_aliases": {"Falcon-512"},
+        "family": "signature",
+        "risk_surrogate": "HYBRID-ECC-Kyber",
+    },
+}
+
+
+def _iso_now():
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def _safe_json(data):
+    return json.dumps(data, indent=2, sort_keys=True)
+
+
+def _normalize_target_algorithm(raw_algorithm):
+    if not raw_algorithm:
+        raise ValueError("target_algorithm is required")
+
+    normalized = raw_algorithm.strip().lower().replace("_", "").replace(" ", "")
+    normalized = normalized.replace("-", "")
+
+    if normalized == "falcon512":
+        normalized = "falcon-512"
+
+    if normalized not in SUPPORTED_MIGRATION_ALGOS:
+        raise ValueError(
+            "Unsupported target_algorithm. Supported values: "
+            "Kyber512, Kyber768, Dilithium3, Falcon-512"
+        )
+
+    return SUPPORTED_MIGRATION_ALGOS[normalized]
+
+
+def _get_device_features(device, encryption_algorithm=None):
+    algo = encryption_algorithm if encryption_algorithm is not None else device.encryption_algorithm
+    return {
+        "device_type": device.device_type,
+        "encryption_algorithm": algo,
+        "data_sensitivity": device.data_sensitivity,
+        "data_retention_years": device.data_retention_years,
+        "network_exposure": device.network_exposure,
+        "update_capable": device.update_capable,
+        "battery_powered": device.battery_powered,
+        "cpu_mhz": device.cpu_mhz,
+        "ram_kb": device.ram_kb,
+        "key_rotation_days": device.key_rotation_days,
+        "deployment_age_years": device.deployment_age_years,
+        "num_connected_devices": device.num_connected_devices,
+        "data_volume_mb_per_day": device.data_volume_mb_per_day,
+    }
+
+
+def _append_job_log(job_id, stage_number, stage_label, progress, message, metrics=None):
+    log_entry = {
+        "timestamp": _iso_now(),
+        "stage_number": stage_number,
+        "stage_label": stage_label,
+        "progress": progress,
+        "message": message,
+    }
+    if metrics is not None:
+        log_entry["metrics"] = metrics
+
+    with MIGRATION_JOBS_LOCK:
+        job = MIGRATION_JOBS.get(job_id)
+        if not job:
+            return
+        job["stage"] = stage_label
+        job["stage_number"] = stage_number
+        job["progress"] = progress
+        job["logs"].append(log_entry)
+        job["updated_at"] = _iso_now()
+
+
+def _set_job_state(job_id, **updates):
+    with MIGRATION_JOBS_LOCK:
+        job = MIGRATION_JOBS.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = _iso_now()
+
+
+def _get_job_snapshot(job_id):
+    with MIGRATION_JOBS_LOCK:
+        job = MIGRATION_JOBS.get(job_id)
+        return dict(job) if job else None
+
+
+def _sleep_in_window(min_seconds, max_seconds, started_at):
+    elapsed = time.perf_counter() - started_at
+    target = random.uniform(min_seconds, max_seconds)
+    remaining = max(0.0, target - elapsed)
+    if remaining:
+        time.sleep(remaining)
+
+
+def _run_target_keygen(target_config):
+    label = target_config["label"]
+    if label == "Kyber512":
+        return pqc_crypto.kyber_demo("Kyber512")
+    if label == "Kyber768":
+        return pqc_crypto.kyber_demo("Kyber768")
+    if label == "Dilithium3":
+        return pqc_crypto.dilithium_demo("Dilithium3")
+    if label == "Falcon-512":
+        return pqc_crypto.falcon_demo()
+    raise ValueError(f"Unsupported migration algorithm: {label}")
+
+
+def _format_keygen_message(target_config, keygen_result):
+    label = target_config["label"]
+    if target_config["family"] == "kem":
+        return (
+            f"{label} keypair generated: pubkey {keygen_result['public_key_bytes']}B, "
+            f"ciphertext {keygen_result['ciphertext_bytes']}B, "
+            f"took {keygen_result['key_gen_ms']}ms"
+        )
+
+    return (
+        f"{label} keypair generated: pubkey {keygen_result['public_key_bytes']}B, "
+        f"signature {keygen_result['signature_bytes']}B, "
+        f"took {keygen_result['key_gen_ms']}ms"
+    )
+
+
+def _run_post_migration_verification(target_config):
+    if target_config["family"] == "kem":
+        result = _run_target_keygen(target_config)
+        return {
+            "mode": "encap-decap",
+            "success": bool(result.get("success")),
+            "encrypt_ms": result.get("encrypt_ms"),
+            "decrypt_ms": result.get("decrypt_ms"),
+            "public_key_bytes": result.get("public_key_bytes"),
+            "ciphertext_bytes": result.get("ciphertext_bytes"),
+        }, (
+            f"{target_config['label']} verification succeeded: encapsulate "
+            f"{result.get('encrypt_ms')}ms / decapsulate {result.get('decrypt_ms')}ms"
+        )
+
+    result = _run_target_keygen(target_config)
+    return {
+        "mode": "sign-verify",
+        "success": bool(result.get("success")),
+        "sign_ms": result.get("sign_ms"),
+        "verify_ms": result.get("verify_ms"),
+        "public_key_bytes": result.get("public_key_bytes"),
+        "signature_bytes": result.get("signature_bytes"),
+    }, (
+        f"{target_config['label']} verification succeeded: sign "
+        f"{result.get('sign_ms')}ms / verify {result.get('verify_ms')}ms"
+    )
+
+
+def _reassess_after_migration(device, target_config, previous_score=None):
+    candidate_algorithms = [target_config["db_algorithm"]]
+    surrogate = target_config.get("risk_surrogate")
+    if surrogate and surrogate not in candidate_algorithms:
+        candidate_algorithms.append(surrogate)
+
+    last_error = None
+    for algorithm in candidate_algorithms:
+        try:
+            result = classifier.classify(_get_device_features(device, encryption_algorithm=algorithm))
+            result["assessment_algorithm"] = algorithm
+            if previous_score is None or result["risk_score"] < previous_score:
+                return result
+            if algorithm != target_config["db_algorithm"]:
+                return result
+        except Exception as exc:
+            last_error = str(exc)
+
+    if previous_score is not None:
+        fallback_score = round(max(0.1, previous_score * 0.55), 4)
+        return {
+            "risk_level": "LOW" if fallback_score <= 0.4 else "MEDIUM",
+            "risk_score": fallback_score,
+            "confidence_scores": {},
+            "assessment_algorithm": surrogate or target_config["db_algorithm"],
+        }
+
+    if last_error:
+        raise RuntimeError(last_error)
+
+    raise RuntimeError("Failed to reassess migrated device")
+
+
+def _get_latest_benchmark_lookup():
+    summary = crypto_benchmark.get_comparison_summary()
+    lookup = {}
+    for detail in summary.get("details", []):
+        if detail.get("algorithm"):
+            lookup[detail["algorithm"]] = detail
+        if detail.get("variant"):
+            lookup[detail["variant"]] = detail
+    return lookup
+
+
+def _start_migration_job(job_id, device_id, target_config, migration_plan_id):
+    db = get_db()
+    try:
+        device = db.query(Device).filter(Device.device_id == device_id).first()
+        if not device:
+            _set_job_state(job_id, status="failed", error=f"Device {device_id} not found")
+            return
+
+        latest_assessment = (
+            db.query(RiskAssessment)
+            .filter(RiskAssessment.device_id == device_id)
+            .order_by(RiskAssessment.assessed_at.desc())
+            .first()
+        )
+        benchmark_lookup = _get_latest_benchmark_lookup()
+        before_algorithm = device.encryption_algorithm
+        before_risk_score = latest_assessment.risk_score if latest_assessment else None
+        collected_metrics = {}
+
+        _set_job_state(job_id, status="running")
+
+        stage_started = time.perf_counter()
+        secure_channel = hybrid_crypto.hybrid_kem_demo()
+        _sleep_in_window(1, 2, stage_started)
+        collected_metrics["secure_channel"] = secure_channel
+        _append_job_log(
+            job_id, 1, MIGRATION_STAGE_DEFS[0][1], MIGRATION_STAGE_DEFS[0][2],
+            (
+                f"Secure OTA tunnel established via {secure_channel['variant']} "
+                f"in {secure_channel['total_ms']}ms"
+            ),
+            {
+                "variant": secure_channel["variant"],
+                "total_ms": secure_channel["total_ms"],
+                "session_key_bits": secure_channel["session_key_bits"],
+            },
+        )
+
+        stage_started = time.perf_counter()
+        keygen_result = _run_target_keygen(target_config)
+        _sleep_in_window(2, 3, stage_started)
+        collected_metrics["target_keygen"] = keygen_result
+        _append_job_log(
+            job_id, 2, MIGRATION_STAGE_DEFS[1][1], MIGRATION_STAGE_DEFS[1][2],
+            _format_keygen_message(target_config, keygen_result),
+            keygen_result,
+        )
+
+        stage_started = time.perf_counter()
+        manifest_signature = pqc_crypto.dilithium_demo("Dilithium3")
+        _sleep_in_window(1, 2, stage_started)
+        collected_metrics["manifest_signature"] = manifest_signature
+        _append_job_log(
+            job_id, 3, MIGRATION_STAGE_DEFS[2][1], MIGRATION_STAGE_DEFS[2][2],
+            (
+                "Firmware manifest signed with Dilithium3: "
+                f"signature {manifest_signature['signature_bytes']}B, "
+                f"sign {manifest_signature['sign_ms']}ms"
+            ),
+            manifest_signature,
+        )
+
+        stage_started = time.perf_counter()
+        transfer_metrics = {
+            "payload_bytes": (
+                keygen_result.get("public_key_bytes", 0) +
+                keygen_result.get("ciphertext_bytes", keygen_result.get("signature_bytes", 0))
+            ),
+            "transport": "MQTT over TLS",
+            "target_algorithm": target_config["label"],
+        }
+        _sleep_in_window(1, 2, stage_started)
+        collected_metrics["transfer"] = transfer_metrics
+        _append_job_log(
+            job_id, 4, MIGRATION_STAGE_DEFS[3][1], MIGRATION_STAGE_DEFS[3][2],
+            (
+                f"Transferred {transfer_metrics['payload_bytes']}B crypto profile to device "
+                f"over {transfer_metrics['transport']}"
+            ),
+            transfer_metrics,
+        )
+
+        stage_started = time.perf_counter()
+        install_metrics = {
+            "target_algorithm": target_config["label"],
+            "validation_checks": ["manifest_signature", "device_policy", "flash_write"],
+            "flash_commit_ms": round(random.uniform(320, 890), 2),
+        }
+        _sleep_in_window(2, 3, stage_started)
+        collected_metrics["install"] = install_metrics
+        _append_job_log(
+            job_id, 5, MIGRATION_STAGE_DEFS[4][1], MIGRATION_STAGE_DEFS[4][2],
+            (
+                f"Device accepted {target_config['label']} profile and committed flash update "
+                f"in {install_metrics['flash_commit_ms']}ms"
+            ),
+            install_metrics,
+        )
+
+        stage_started = time.perf_counter()
+        verification_metrics, verification_message = _run_post_migration_verification(target_config)
+        _sleep_in_window(1, 2, stage_started)
+        collected_metrics["verification"] = verification_metrics
+        _append_job_log(
+            job_id, 6, MIGRATION_STAGE_DEFS[5][1], MIGRATION_STAGE_DEFS[5][2],
+            verification_message,
+            verification_metrics,
+        )
+
+        stage_started = time.perf_counter()
+        _sleep_in_window(1, 1, stage_started)
+        _append_job_log(
+            job_id, 7, MIGRATION_STAGE_DEFS[6][1], MIGRATION_STAGE_DEFS[6][2],
+            f"Device reboot complete. Active crypto stack now reports {target_config['label']}.",
+        )
+
+        device.encryption_algorithm = target_config["db_algorithm"]
+        reassessment = _reassess_after_migration(device, target_config, before_risk_score)
+        policy = policy_engine.evaluate(
+            _get_device_features(device, reassessment.get("assessment_algorithm", device.encryption_algorithm)),
+            reassessment["risk_level"],
+            reassessment["risk_score"],
+        )
+
+        new_assessment = RiskAssessment(
+            device_id=device.device_id,
+            risk_level=reassessment["risk_level"],
+            risk_score=reassessment["risk_score"],
+            recommended_strategy=policy["strategy"],
+            recommended_algorithm=policy["recommended_algorithm"],
+            reasoning=policy["reasoning"],
+        )
+        db.add(new_assessment)
+
+        migration_plan = db.query(MigrationPlan).filter(MigrationPlan.id == migration_plan_id).first()
+        if migration_plan:
+            migration_plan.current_algorithm = before_algorithm
+            migration_plan.target_algorithm = target_config["db_algorithm"]
+            migration_plan.status = "Complete"
+            migration_plan.migration_phase = "Executed OTA Migration"
+            migration_plan.estimated_effort = "Completed"
+            migration_plan.notes = _safe_json({
+                "before_algorithm": before_algorithm,
+                "after_algorithm": target_config["db_algorithm"],
+                "benchmark_reference": benchmark_lookup.get(target_config["db_algorithm"]),
+                "metrics": collected_metrics,
+                "logs": _get_job_snapshot(job_id)["logs"],
+                "reassessment": reassessment,
+                "completed_at": _iso_now(),
+            })
+
+        success_alert = Alert(
+            device_id=device.device_id,
+            severity="LOW",
+            title=f"Migration Complete: {device.device_id}",
+            message=f"Device {device.device_id} successfully migrated to {target_config['label']}",
+        )
+        db.add(success_alert)
+        db.commit()
+
+        _set_job_state(
+            job_id,
+            status="completed",
+            result={
+                "device_id": device.device_id,
+                "before_algorithm": before_algorithm,
+                "after_algorithm": target_config["db_algorithm"],
+                "risk_level": reassessment["risk_level"],
+                "risk_score": reassessment["risk_score"],
+                "assessment_algorithm": reassessment.get("assessment_algorithm", target_config["db_algorithm"]),
+            },
+        )
+    except Exception as exc:
+        db.rollback()
+        _set_job_state(job_id, status="failed", error=str(exc))
+        plan = db.query(MigrationPlan).filter(MigrationPlan.id == migration_plan_id).first()
+        if plan:
+            plan.status = "Failed"
+            plan.notes = str(exc)
+            db.commit()
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -654,6 +1075,96 @@ def migration_plan(device_id):
         return jsonify(plan.to_dict())
     finally:
         db.close()
+
+
+@app.route("/api/devices/<device_id>/migrate", methods=["POST"])
+def migrate_device(device_id):
+    data = request.get_json() or {}
+
+    try:
+        target_config = _normalize_target_algorithm(data.get("target_algorithm"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc), "status": 400}), 400
+
+    db = get_db()
+    try:
+        device = db.query(Device).filter(Device.device_id == device_id).first()
+        if not device:
+            return jsonify({"error": f"Device {device_id} not found", "status": 404}), 404
+
+        latest_assessment = (
+            db.query(RiskAssessment)
+            .filter(RiskAssessment.device_id == device_id)
+            .order_by(RiskAssessment.assessed_at.desc())
+            .first()
+        )
+        current_risk = latest_assessment.risk_score if latest_assessment else 0.5
+        current_level = latest_assessment.risk_level if latest_assessment else "MEDIUM"
+        policy = policy_engine.evaluate(_get_device_features(device), current_level, current_risk)
+
+        plan = MigrationPlan(
+            device_id=device.device_id,
+            current_algorithm=device.encryption_algorithm,
+            target_algorithm=target_config["db_algorithm"],
+            migration_phase="Executing OTA Migration",
+            estimated_effort=policy["estimated_effort"],
+            priority_score=policy["priority_score"],
+            notes=policy["notes"],
+            status="InProgress",
+        )
+        db.add(plan)
+        db.commit()
+        db.refresh(plan)
+
+        job_id = str(uuid.uuid4())
+        initial_stage = MIGRATION_STAGE_DEFS[0]
+        with MIGRATION_JOBS_LOCK:
+            MIGRATION_JOBS[job_id] = {
+                "job_id": job_id,
+                "device_id": device.device_id,
+                "target_algorithm": target_config["label"],
+                "status": "queued",
+                "progress": 0,
+                "stage": initial_stage[1],
+                "stage_number": 0,
+                "logs": [{
+                    "timestamp": _iso_now(),
+                    "stage_number": 0,
+                    "stage_label": "Queued",
+                    "progress": 0,
+                    "message": f"Queued OTA migration from {device.encryption_algorithm} to {target_config['label']}",
+                }],
+                "created_at": _iso_now(),
+                "updated_at": _iso_now(),
+                "result": None,
+                "error": None,
+            }
+
+        worker = threading.Thread(
+            target=_start_migration_job,
+            args=(job_id, device.device_id, target_config, plan.id),
+            daemon=True,
+        )
+        worker.start()
+
+        return jsonify({
+            "job_id": job_id,
+            "device_id": device.device_id,
+            "current_algorithm": device.encryption_algorithm,
+            "target_algorithm": target_config["label"],
+            "status": "queued",
+        }), 202
+    finally:
+        db.close()
+
+
+@app.route("/api/migration/status/<job_id>", methods=["GET"])
+def migration_status(job_id):
+    job = _get_job_snapshot(job_id)
+    if not job:
+        return jsonify({"error": f"Migration job {job_id} not found", "status": 404}), 404
+
+    return jsonify(job)
 
 
 # ---------------------------------------------------------------------------

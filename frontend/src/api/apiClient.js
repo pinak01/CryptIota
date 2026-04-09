@@ -36,6 +36,8 @@ export const fetchBenchmarkHistory = () => api.get('/benchmark/history').then(r 
 // Migration
 export const fetchMigrationRoadmap = () => api.get('/migration/roadmap').then(r => r.data)
 export const fetchMigrationPlan = (id) => api.get(`/migration/plan/${id}`).then(r => r.data)
+export const startDeviceMigration = (id, data) => api.post(`/devices/${id}/migrate`, data).then(r => r.data)
+export const fetchMigrationStatus = (jobId) => api.get(`/migration/status/${jobId}`).then(r => r.data)
 
 // Alerts
 export const fetchAlerts = (params = {}) => api.get('/alerts', { params }).then(r => r.data)

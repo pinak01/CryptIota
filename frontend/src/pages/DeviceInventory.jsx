@@ -20,6 +20,29 @@ export default function DeviceInventory() {
     const [error, setError] = useState(null)
     const [page, setPage] = useState(0)
     const [filters, setFilters] = useState({ risk_level: '', device_type: '', algorithm: '', search: '' })
+    const [migrationOverlay, setMigrationOverlay] = useState({})
+
+    const applyMigrationUpdate = (payload) => {
+        if (!payload?.device_id) return
+
+        setMigrationOverlay(prev => ({
+            ...prev,
+            [payload.device_id]: payload,
+        }))
+
+        setDevices(prev => prev.map(device => {
+            if (device.device_id !== payload.device_id) return device
+            return {
+                ...device,
+                encryption_algorithm: payload.after_algorithm || device.encryption_algorithm,
+                risk_assessment: device.risk_assessment ? {
+                    ...device.risk_assessment,
+                    risk_level: payload.risk_level || device.risk_assessment.risk_level,
+                    risk_score: payload.risk_score ?? device.risk_assessment.risk_score,
+                } : device.risk_assessment,
+            }
+        }))
+    }
 
     const load = () => {
         setLoading(true)
@@ -28,13 +51,52 @@ export default function DeviceInventory() {
         if (filters.device_type) params.device_type = filters.device_type
         if (filters.search) params.search = filters.search
         fetchDevices(params)
-            .then(d => { setDevices(d.devices); setTotal(d.total) })
+            .then(d => {
+                const hydratedDevices = d.devices.map(device => {
+                    const migration = migrationOverlay[device.device_id]
+                    if (!migration) return device
+                    return {
+                        ...device,
+                        encryption_algorithm: migration.after_algorithm || device.encryption_algorithm,
+                        risk_assessment: device.risk_assessment ? {
+                            ...device.risk_assessment,
+                            risk_level: migration.risk_level || device.risk_assessment.risk_level,
+                            risk_score: migration.risk_score ?? device.risk_assessment.risk_score,
+                        } : device.risk_assessment,
+                    }
+                })
+                setDevices(hydratedDevices)
+                setTotal(d.total)
+            })
             .catch(e => setError(e.message))
             .finally(() => setLoading(false))
     }
 
-    useEffect(() => { load() }, [page, filters.risk_level, filters.device_type])
-    useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t) }, [filters.search])
+    useEffect(() => { load() }, [page, filters.risk_level, filters.device_type, migrationOverlay])
+    useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t) }, [filters.search, migrationOverlay])
+    useEffect(() => {
+        const onMigration = (event) => applyMigrationUpdate(event.detail)
+        const onStorage = (event) => {
+            if (event.key !== 'quantumguard:lastMigration' || !event.newValue) return
+            applyMigrationUpdate(JSON.parse(event.newValue))
+        }
+
+        const cached = window.localStorage.getItem('quantumguard:lastMigration')
+        if (cached) {
+            try {
+                applyMigrationUpdate(JSON.parse(cached))
+            } catch {
+                // Ignore malformed persisted state.
+            }
+        }
+
+        window.addEventListener('device-migrated', onMigration)
+        window.addEventListener('storage', onStorage)
+        return () => {
+            window.removeEventListener('device-migrated', onMigration)
+            window.removeEventListener('storage', onStorage)
+        }
+    }, [])
 
     const totalPages = Math.ceil(total / PER_PAGE)
     const updateFilter = (key, val) => { setFilters(f => ({ ...f, [key]: val })); setPage(0) }
@@ -83,12 +145,18 @@ export default function DeviceInventory() {
                             <tbody>
                                 {devices.map(d => {
                                     const ra = d.risk_assessment
+                                    const migration = migrationOverlay[d.device_id]
                                     return (
                                         <tr key={d.device_id} onClick={() => navigate(`/devices/${d.device_id}`)} className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-card-hover)] cursor-pointer transition-colors">
                                             <td className="px-4 py-3 font-mono text-[var(--color-accent)]">{d.device_id}</td>
                                             <td className="px-4 py-3 text-[var(--color-text-secondary)] capitalize">{d.device_type?.replace(/_/g, ' ')}</td>
                                             <td className="px-4 py-3 text-[var(--color-text-secondary)]">{d.location}</td>
-                                            <td className="px-4 py-3 font-mono text-xs">{d.encryption_algorithm}</td>
+                                            <td className="px-4 py-3 font-mono text-xs">
+                                                {migration?.before_algorithm && (
+                                                    <p className="line-through text-[var(--color-text-muted)]">{migration.before_algorithm}</p>
+                                                )}
+                                                <p className={migration ? 'text-green-400' : ''}>{d.encryption_algorithm}</p>
+                                            </td>
                                             <td className="px-4 py-3 text-center">{d.data_sensitivity}</td>
                                             <td className="px-4 py-3 text-center">{d.data_retention_years}y</td>
                                             <td className="px-4 py-3">{ra ? <RiskBadge level={ra.risk_level} size="sm" /> : <span className="text-[var(--color-text-muted)]">—</span>}</td>

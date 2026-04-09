@@ -49,7 +49,7 @@ seed_demo_data()
 "
 echo "  ✔ Demo data ready"
 
-echo "[5/6] Starting Flask backend on http://localhost:5000 ..."
+echo "[5/6] Starting Flask backend on http://localhost:6000 ..."
 python app.py &
 BACKEND_PID=$!
 sleep 2
@@ -67,7 +67,7 @@ echo "============================================================"
 echo "  QuantumGuard AI is running!"
 echo "  ┌─────────────────────────────────────────────────┐"
 echo "  │  Frontend  →  http://localhost:5173             │"
-echo "  │  Backend   →  http://localhost:5000/api/health  │"
+echo "  │  Backend   →  http://localhost:6000/api/health  │"
 echo "  └─────────────────────────────────────────────────┘"
 echo "  Press Ctrl+C to stop all services."
 echo "============================================================"

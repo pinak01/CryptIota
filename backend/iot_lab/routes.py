@@ -388,8 +388,8 @@ def simulate_replay():
     hs.handshake_complete(session_id, {
         "device_ciphertext": ct_hex,
         "device_cpu_time_ms": round(random.uniform(30, 80), 2),
-        "free_heap_before": random.randint(250000, 300000),
-        "free_heap_after": random.randint(200000, 250000),
+        "free_heap_before": random.randint(260000, 300000),
+        "free_heap_after": random.randint(200000, 260000),
     })
 
     # Step 3: Send legitimate telemetry
@@ -457,7 +457,7 @@ def simulate_downgrade():
     hs.handshake_complete(session_id, {
         "device_cpu_time_ms": round(random.uniform(5, 15), 2),
         "free_heap_before": random.randint(280000, 300000),
-        "free_heap_after": random.randint(275000, 295000),
+        "free_heap_after": random.randint(276000, 296000),
     })
 
     _persist_simulation_session(session_id, device_id)

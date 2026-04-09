@@ -18,7 +18,7 @@ MODEL_METADATA_PATH = os.path.join(ML_DIR, "model_metadata.json")
 
 # Flask
 FLASK_HOST = "0.0.0.0"
-FLASK_PORT = 5000
+FLASK_PORT = 6000
 FLASK_DEBUG = True
 
 # App
